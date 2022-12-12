@@ -13,7 +13,7 @@ from torch import optim
 import torch.nn.functional as F
 from torch import Tensor
 import torchtext
-from torchtext.vocab import Vocab
+from torchtext.vocab import vocab
 from torchtext.data.utils import get_tokenizer
 from collections import Counter
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
@@ -21,12 +21,12 @@ import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
-def loadVoc(vocab, tokenizer):
+def loadVoc(voc, tokenizer):
     counter= Counter()
-    with open(vocab, encoding="utf-8") as f:
+    with open(voc, encoding="utf-8") as f:
         for s in f:
             counter.update(tokenizer(s))
-    return Vocab(counter, specials= ['<unk>', '<pad>', '<bos>', '<eos>'])
+    return vocab(counter, specials= ['<unk>', '<pad>', '<bos>', '<eos>'])
 
 def dataPrep(en, de):
     print("loading data from " + en)
@@ -258,6 +258,16 @@ def testBleuScore(encoder, decoder, pairs):
     bleu_mean= np.mean(bleu)
     return bleu_mean
 
+def generate_batch(data_batch):
+  de_batch, en_batch = [], []
+  for (de_item, en_item) in data_batch:
+    de_batch.append(torch.cat([torch.tensor([BOS_IDX]), de_item, torch.tensor([EOS_IDX])], dim=0))
+    en_batch.append(torch.cat([torch.tensor([BOS_IDX]), en_item, torch.tensor([EOS_IDX])], dim=0))
+  de_batch = pad_sequence(de_batch, padding_value=PAD_IDX)
+  en_batch = pad_sequence(en_batch, padding_value=PAD_IDX)
+
+  return de_batch, en_batch
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Neural Machine Translation using GRU")
     parser.add_argument('mode', type=str, help='Mode: train/ test/ translate')
@@ -268,12 +278,12 @@ if __name__ == '__main__':
     MAX_LEN= 50
     teacher_forcing_ratio = 0.8
 
-    train_path = ['/home/vanshika/Desktop/HW3_DL/dataset/train/traindatade.txt',
-                  '/home/vanshika/Desktop/HW3_DL/dataset/train/traindataen.txt']
-    test_path = ['/home/vanshika/Desktop/HW3_DL/dataset/test/testdatade.txt',
-                 '/home/vanshika/Desktop/HW3_DL/dataset/test/testdataen.txt']
-    vocab_path= ['/home/vanshika/Desktop/HW3_DL/dataset/vocab/vocde.txt',
-                 '/home/vanshika/Desktop/HW3_DL/dataset/vocab/vocen.txt']
+    train_path = ['/home/vanshika/Desktop/NLP_basics/dataset/train/traindatade.txt',
+                  '/home/vanshika/Desktop/NLP_basics/dataset/train/traindataen.txt']
+    test_path = ['/home/vanshika/Desktop/NLP_basics/dataset/test/testdatade.txt',
+                 '/home/vanshika/Desktop/NLP_basics/dataset/test/testdataen.txt']
+    vocab_path= ['/home/vanshika/Desktop/NLP_basics/dataset/vocab/vocde.txt',
+                 '/home/vanshika/Desktop/NLP_basics/dataset/vocab/vocen.txt']
 
 
     de_token = get_tokenizer('spacy', language='de')
@@ -282,6 +292,9 @@ if __name__ == '__main__':
     de_vocab = loadVoc(train_path[0], de_token)
     en_vocab = loadVoc(train_path[1], en_token)    
 
+    de_vocab.set_default_index(de_vocab['<unk>'])
+    en_vocab.set_default_index(en_vocab['<unk>'])
+
     PAD_IDX = de_vocab['<pad>']
     BOS_IDX = de_vocab['<bos>']
     EOS_IDX = de_vocab['<eos>']
@@ -289,8 +302,8 @@ if __name__ == '__main__':
     train_data = dataPrep(train_path[1], train_path[0])
     test_data = dataPrep(test_path[1], test_path[0])
 
-    train_iter = DataLoader(train_data, BATCH_SIZE, shuffle= True)
-    test_iter = DataLoader(test_data, BATCH_SIZE, shuffle= True)
+    train_iter = DataLoader(train_data, BATCH_SIZE, shuffle= True, collate_fn=generate_batch)
+    test_iter = DataLoader(test_data, BATCH_SIZE, shuffle= True, collate_fn=generate_batch)
 
     INPUT_DIM = len(de_vocab)
     OUTPUT_DIM = len(en_vocab)
@@ -324,10 +337,11 @@ if __name__ == '__main__':
 
     print(f'The model has {count_parameters(model):,} trainable parameters')
     
-    PAD_IDX2 = en_vocab.stoi['<pad>']
+    PAD_IDX2 = en_vocab['<pad>']
+    print( device)
     criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX2)
 
-    N_EPOCHS = 50
+    N_EPOCHS = 5
     CLIP = 1
 
     if arg.mode == 'train':
